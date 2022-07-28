@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `T: Default` is not satisfied
+   --> tests/invalid_parser_or_default.rs:6:5
+    |
+6   |     parser!(%a)
+    |     ^^^^^^^^^^^ the trait `Default` is not implemented for `T`
+    |
+note: required by a bound in `_or_default`
+   --> src/parser.rs
+    |
+    | pub fn _or_default<TokenKind, T: Default, E>(
+    |                                  ^^^^^^^ required by this bound in `_or_default`
+    = note: this error originates in the macro `parser` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider restricting type parameter `T`
+    |
+3   | fn p<TokenKind, T: std::default::Default, E>(
+    |                  +++++++++++++++++++++++

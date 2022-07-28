@@ -1,0 +1,10 @@
+[package]
+name = "example-json-parser"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+bench = []
+
+[dependencies]
+langbox = { path = "../langbox" }

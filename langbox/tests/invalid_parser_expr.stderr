@@ -1,0 +1,5 @@
+error: unexpected token
+ --> tests/invalid_parser_expr.rs:8:15
+  |
+8 |     parser!(p1())
+  |               ^

@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "langbox",
+    "langbox_procmacro",
+    "example-json-parser",
+]

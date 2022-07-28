@@ -1,0 +1,18 @@
+[package]
+name = "langbox_procmacro"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mathis Rech"]
+license = "MIT"
+description = "Proc-macros for langbox"
+repository = "https://github.com/Artentus/LangBox"
+homepage = "https://github.com/Artentus/LangBox"
+readme = "crates-io.md"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full"] }
+quote = "1.0"
+proc-macro-crate = "1.1"
