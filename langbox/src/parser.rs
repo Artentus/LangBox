@@ -660,6 +660,19 @@ pub fn _many<TokenKind, T, E>(
     })
 }
 
+/// Matches the end of the token stream
+pub fn eof<TokenKind, E>() -> impl Parser<TokenKind, (), E> {
+    parse_fn!(|input| if let Some(_) = input.peek() {
+        ParseResult::NoMatch
+    } else {
+        ParseResult::Match {
+            value: (),
+            span: input.empty_span(),
+            remaining: input,
+        }
+    })
+}
+
 /// Matches three parsers in sequence, returning only the second result
 pub fn between<TokenKind, T1, T2, T3, E>(
     prefix: impl Parser<TokenKind, T1, E>,
