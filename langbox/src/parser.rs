@@ -1114,4 +1114,46 @@ pub(crate) mod test {
         test_parser(p, "aaa", Some(vec!['a', 'a', 'a']));
         test_parser(p, "aaaa", Some(vec!['a', 'a', 'a']));
     }
+
+    #[test]
+    fn choice() {
+        let p = choice!(
+            parse_test_token(TestTokenKind::A),
+            parse_test_token(TestTokenKind::B)
+        );
+
+        test_parser(p, "", None);
+        test_parser(p, "a", Some('a'));
+        test_parser(p, "b", Some('b'));
+
+        test_parser(p, " a", None);
+        test_parser(p, " b", None);
+    }
+
+    #[test]
+    fn sequence() {
+        let p = sequence!(
+            parse_test_token(TestTokenKind::A),
+            parse_test_token(TestTokenKind::B)
+        );
+
+        test_parser(p, "", None);
+        test_parser(p, "a", None);
+        test_parser(p, "b", None);
+        test_parser(p, "ba", None);
+        test_parser(p, "ab", Some(('a', 'b')));
+
+        test_parser(p, " ab", None);
+        test_parser(p, "a b", None);
+    }
+
+    #[test]
+    fn eof() {
+        test_parser(super::eof(), "", Some(()));
+        test_parser(super::eof(), "a", None);
+
+        let p = sequence!(parse_test_token(TestTokenKind::A), super::eof(),);
+
+        test_parser(p, "a", Some(('a', ())));
+    }
 }
