@@ -3,11 +3,12 @@
 //! This crate requires a nightly compiler because of the try_trait_v2 feature.
 //!
 //! # Usage
-//! ```
+//! ```no_run
 //! use langbox::*;
 //!
 //! enum JsonTokenKind {
 //!     // ...
+//!     # None
 //! }
 //!
 //! // Make the reader an uninhabited type because we don't construct any objects of it
@@ -18,22 +19,30 @@
 //!     
 //!     fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
 //!         // ...
+//!         # ReadTokenResult {
+//!         #     token: JsonTokenKind::None,
+//!         #     consumed_bytes: 0,
+//!         # }
 //!     }
 //! }
 //!
+//! # #[derive(Clone, Copy)]
 //! struct JsonValue {
 //!     // ...
 //! }
 //!
 //! fn jvalue() -> impl Parser<JsonTokenKind, JsonValue, String> {
 //!     // ...
+//!     # parser!(()=>[JsonValue {}])
 //! }
 //!
 //! fn main() {
 //!     // FileServer manages loading files for us.
 //!     // It ensures the same physical file is never loaded twice.
 //!     let mut file_server = FileServer::new();
-//!     let file_id = file_server.register_file( /* ... */ );
+//!
+//!     let file_path = "path/to/json/file.json";
+//!     let file_id = file_server.register_file(file_path).unwrap();
 //!
 //!     // After we have loaded a file we can tokenize it using a Lexer.
 //!     type JLexer<'a> = Lexer<'a, JsonTokenReader, whitespace_mode::Remove>;

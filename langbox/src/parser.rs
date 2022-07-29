@@ -4,7 +4,7 @@ use std::ops::{ControlFlow, FromResidual, Try};
 /// A stream of syntax tokens
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// use langbox::*;
 ///
 /// let lexer: Lexer<_, _> = /* ... */;
@@ -377,6 +377,8 @@ where
 ///
 /// # Examples
 /// ```
+/// use langbox::*;
+///
 /// // A parser that always matches, consumes no tokens and returns ()
 /// fn always<TokenKind, E>() -> impl Parser<TokenKind, (), E> {
 ///     parse_fn!(|input| ParseResult::Match {
@@ -388,6 +390,8 @@ where
 /// ```
 ///
 /// ```
+/// use langbox::*;
+///
 /// // A parser that returns None if the inner parser didn't match
 /// fn opt<TokenKind, T, E>(
 ///     p: impl Parser<TokenKind, T, E>,

@@ -15,6 +15,8 @@ pub struct ReadTokenResult<Kind> {
 ///
 /// # Example Implementation
 /// ```
+/// use langbox::*;
+///
 /// // Our implementation-specific kinds of tokens
 /// #[derive(Debug, Clone)]
 /// enum JsonTokenKind {
@@ -31,7 +33,7 @@ pub struct ReadTokenResult<Kind> {
 ///     False,
 ///     True,
 ///     Number(f64),
-///     String(Rc<str>),
+///     String(std::rc::Rc<str>),
 /// }
 ///
 /// // Make the reader an uninhabited type because we don't construct any objects of it
@@ -40,10 +42,12 @@ pub struct ReadTokenResult<Kind> {
 /// impl JsonTokenReader {
 ///     fn read_number(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::Token>> {
 ///         // ...
+///         # None
 ///     }
 ///     
 ///     fn read_string(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::Token>> {
 ///         // ...
+///         # None
 ///     }
 /// }
 ///
@@ -134,11 +138,25 @@ pub mod whitespace_mode {
 /// Transforms a source file into a token stream
 ///
 /// # Example
-/// ```
+/// ```no_run
 /// use langbox::*;
 ///
 /// let mut file_server = FileServer::new();
-/// let file_id = file_server.register_file( /* ... */ );
+///
+/// # enum YourTokenKind { None }
+/// # enum YourTokenReader {}
+/// # impl langbox::TokenReader for YourTokenReader {
+/// #     type Token = YourTokenKind;
+/// #     fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
+/// #         ReadTokenResult {
+/// #             token: YourTokenKind::None,
+/// #             consumed_bytes: 0,
+/// #         }
+/// #     }
+/// # }
+///
+/// let file_path = "path/to/json/file.json";
+/// let file_id = file_server.register_file(file_path).unwrap();
 ///
 /// let lexer = Lexer::<YourTokenReader, whitespace_mode::Remove>::new(file_id, &file_server);
 /// let tokens = lexer.collect::<Vec<_>>();

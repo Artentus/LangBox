@@ -425,7 +425,7 @@ fn generate_parser(c: Combinator, n: usize) -> syn::__private::TokenStream2 {
 /// 6. `<|>`
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// use langbox::*;
 ///
 /// fn token(predicate: impl Fn(&JsonTokenKind) -> bool + Copy)
@@ -503,7 +503,7 @@ fn generate_choice(c: &Choice, crate_ident: Ident, n: usize) -> syn::__private::
 /// The resulting parser returns the result of the first parser that matched.
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// use langbox::*;
 ///
 /// fn jnull() -> impl Parser<JsonTokenKind, JsonValue, String> {
