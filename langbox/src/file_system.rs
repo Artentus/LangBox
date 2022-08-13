@@ -15,7 +15,7 @@ mod unix {
 }
 
 #[cfg(target_family = "unix")]
-use unix::get_file_id;
+use unix::get_file_id as get_physical_file_id;
 #[cfg(target_family = "unix")]
 use unix::UnixFileId as PhysicalFileId;
 
