@@ -69,6 +69,18 @@ impl<'a, Kind> TokenStream<'a, Kind> {
             end_pos: pos,
         }
     }
+
+    /// Returns the tokens that have already been consumed
+    #[inline]
+    pub fn consumed(&self) -> &'a [Token<Kind>] {
+        &self.tokens[..self.pos]
+    }
+
+    /// Returns the tokens that are remaining in the stream
+    #[inline]
+    pub fn remaining(&self) -> &'a [Token<Kind>] {
+        &self.tokens[self.pos..]
+    }
 }
 
 /// The result of running a parser
