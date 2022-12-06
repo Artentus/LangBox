@@ -52,21 +52,20 @@ impl<'a, Kind> TokenStream<'a, Kind> {
     /// Gets an empty span at the current position
     pub fn empty_span(&self) -> TextSpan {
         let pos = match self.peek() {
-            Some(t) => t.span.start_pos,
+            Some(t) => t.span.start_pos(),
             None => match self.tokens.iter().last() {
-                Some(t) => t.span.end_pos,
+                Some(t) => t.span.end_pos(),
                 None => TextPosition {
                     file_id: FileId::NONE,
                     byte_offset: 0,
-                    line: 0,
-                    column: 0,
                 },
             },
         };
 
         TextSpan {
-            start_pos: pos,
-            end_pos: pos,
+            file_id: pos.file_id,
+            start_byte_offset: pos.byte_offset,
+            end_byte_offset: pos.byte_offset,
         }
     }
 

@@ -64,7 +64,7 @@
 #![cfg_attr(target_family = "windows", feature(windows_by_handle))]
 
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 
 mod file_system;
@@ -74,9 +74,7 @@ pub use file_system::*;
 #[derive(Debug, Clone, Copy, Eq)]
 pub struct TextPosition {
     file_id: FileId,
-    byte_offset: usize,
-    line: usize,
-    column: usize,
+    byte_offset: u32,
 }
 
 impl TextPosition {
@@ -86,77 +84,66 @@ impl TextPosition {
         self.file_id
     }
 
-    /// The line in the text
-    #[inline]
-    pub fn line(&self) -> usize {
-        self.line
-    }
+    /// Gets the zero-based line and column numbers corresponding to this position
+    pub fn line_column(&self, file_server: &FileServer) -> (u32, u32) {
+        let file = file_server.get_file(self.file_id).expect("invalid file ID");
 
-    /// The column in the line
-    #[inline]
-    pub fn column(&self) -> usize {
-        self.column
+        let mut line = 0;
+        let mut column = 0;
+
+        for (i, c) in file.text().char_indices() {
+            if i >= (self.byte_offset as usize) {
+                break;
+            }
+
+            if c == '\n' {
+                line += 1;
+                column = 0;
+            } else {
+                column += 1;
+            }
+        }
+
+        (line, column)
     }
 
     /// Finds the smaller of two text positions.
     /// The smaller position is defined as the position that appears first in the text.
-    pub fn min(self, other: Self) -> Self {
+    pub fn min(&self, other: &Self) -> Self {
         match self
             .partial_cmp(&other)
             .expect("positions belong to different files")
         {
-            Ordering::Less => self,
-            Ordering::Equal => self,
-            Ordering::Greater => other,
+            Ordering::Less => *self,
+            Ordering::Equal => *self,
+            Ordering::Greater => *other,
         }
     }
 
     /// Finds the larger of two text positions.
     /// The larger position is defined as the position that appears last in the text.
-    pub fn max(self, other: Self) -> Self {
+    pub fn max(&self, other: &Self) -> Self {
         match self
             .partial_cmp(&other)
             .expect("positions belong to different files")
         {
-            Ordering::Less => other,
-            Ordering::Equal => self,
-            Ordering::Greater => self,
+            Ordering::Less => *other,
+            Ordering::Equal => *self,
+            Ordering::Greater => *self,
         }
     }
 }
 
 impl PartialEq for TextPosition {
     fn eq(&self, other: &Self) -> bool {
-        let eq = (self.file_id == other.file_id) && (self.byte_offset == other.byte_offset);
-
-        if eq {
-            debug_assert_eq!(self.line, other.line);
-            debug_assert_eq!(self.column, other.column);
-        }
-
-        eq
+        (self.file_id == other.file_id) && (self.byte_offset == other.byte_offset)
     }
 }
 
 impl PartialOrd for TextPosition {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.file_id == other.file_id {
-            let ord = self.byte_offset.cmp(&other.byte_offset);
-
-            match ord {
-                Ordering::Less => {
-                    debug_assert!((self.line < other.line) | (self.column < other.column));
-                }
-                Ordering::Equal => {
-                    debug_assert_eq!(self.line, other.line);
-                    debug_assert_eq!(self.column, other.column);
-                }
-                Ordering::Greater => {
-                    debug_assert!((self.line > other.line) | (self.column > other.column));
-                }
-            }
-
-            Some(ord)
+            Some(self.byte_offset.cmp(&other.byte_offset))
         } else {
             None
         }
@@ -165,66 +152,74 @@ impl PartialOrd for TextPosition {
 
 impl Hash for TextPosition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.file_id.hash(state);
         self.byte_offset.hash(state);
-    }
-}
-
-impl Display for TextPosition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.line + 1, self.column + 1)
     }
 }
 
 /// Defines one contiguous region in the text of a source file
 #[derive(Debug, Clone, Copy, Eq)]
 pub struct TextSpan {
-    start_pos: TextPosition,
-    end_pos: TextPosition,
+    file_id: FileId,
+    start_byte_offset: u32,
+    end_byte_offset: u32,
 }
 
 impl TextSpan {
     /// The source file this span is referring to
     #[inline]
     pub fn file_id(&self) -> FileId {
-        self.start_pos.file_id
+        self.file_id
     }
 
     /// The inclusive start position of the span
     #[inline]
     pub fn start_pos(&self) -> TextPosition {
-        self.start_pos
+        TextPosition {
+            file_id: self.file_id,
+            byte_offset: self.start_byte_offset,
+        }
     }
 
     /// The exclusive end position of the span
     #[inline]
     pub fn end_pos(&self) -> TextPosition {
-        self.end_pos
+        TextPosition {
+            file_id: self.file_id,
+            byte_offset: self.end_byte_offset,
+        }
     }
 
     /// Gets the string slice corresponding to this span
     pub fn text<'a>(&self, file_server: &'a FileServer) -> &'a str {
-        let file = file_server
-            .get_file(self.file_id())
-            .expect("invalid file ID");
-
-        &file.text()[self.start_pos.byte_offset..self.end_pos.byte_offset]
+        let file = file_server.get_file(self.file_id).expect("invalid file ID");
+        &file.text()[(self.start_byte_offset as usize)..(self.end_byte_offset as usize)]
     }
 
     /// Joins two spans.
     /// The resulting span will define a region that includes the regions of both spans entirely as well as anything in between.
     pub fn join(&self, other: &Self) -> Self {
-        let start_pos = self.start_pos.min(other.start_pos);
-        let end_pos = self.end_pos.max(other.end_pos);
+        assert_eq!(
+            self.file_id, other.file_id,
+            "spans belong to different files"
+        );
 
-        Self { start_pos, end_pos }
+        let start_byte_offset = self.start_byte_offset.min(other.start_byte_offset);
+        let end_byte_offset = self.end_byte_offset.max(other.end_byte_offset);
+
+        Self {
+            file_id: self.file_id,
+            start_byte_offset,
+            end_byte_offset,
+        }
     }
 }
 
 impl PartialEq for TextSpan {
     fn eq(&self, other: &Self) -> bool {
-        (self.file_id() == other.file_id())
-            && (self.start_pos == other.start_pos)
-            && (self.end_pos == other.end_pos)
+        (self.file_id == other.file_id)
+            && (self.start_byte_offset == other.start_byte_offset)
+            && (self.end_byte_offset == other.end_byte_offset)
     }
 }
 

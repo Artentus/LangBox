@@ -21,12 +21,12 @@ use unix::UnixFileId as PhysicalFileId;
 
 #[cfg(target_family = "windows")]
 mod windows {
-    def_file_id_type!(WindowsFileId(u32, u64));
+    def_file_id_type!(WindowsFileId(u64, u32));
 
     pub fn get_file_id(metadata: &dyn std::os::windows::fs::MetadataExt) -> WindowsFileId {
         let volume_id = metadata.volume_serial_number().unwrap();
         let file_index = metadata.file_index().unwrap();
-        WindowsFileId(volume_id, file_index)
+        WindowsFileId(file_index, volume_id)
     }
 }
 
@@ -74,6 +74,16 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
+    fn new(path: Box<Path>, text: Cow<'static, str>) -> Self {
+        assert!(
+            text.len() <= (u32::MAX as usize),
+            "file `{}` is too big",
+            path.display()
+        );
+
+        Self { path, text }
+    }
+
     /// The cannonical path of the file
     #[inline]
     pub fn path(&self) -> &Path {
@@ -84,6 +94,12 @@ impl SourceFile {
     #[inline]
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// The length of the text content
+    #[inline]
+    pub fn text_len(&self) -> u32 {
+        self.text.len() as u32
     }
 }
 
@@ -136,13 +152,7 @@ impl FileServer {
             let path = path.as_ref().canonicalize()?.into_boxed_path();
             let text = std::fs::read_to_string(&path)?;
 
-            self.files.insert(
-                id,
-                SourceFile {
-                    path,
-                    text: text.into(),
-                },
-            );
+            self.files.insert(id, SourceFile::new(path, text.into()));
         }
 
         Ok(id)
@@ -159,13 +169,7 @@ impl FileServer {
         self.next_memory_id += 1;
 
         let path = path.as_ref().to_owned().into_boxed_path();
-        self.files.insert(
-            id,
-            SourceFile {
-                path,
-                text: text.into(),
-            },
-        );
+        self.files.insert(id, SourceFile::new(path, text.into()));
 
         id
     }

@@ -135,6 +135,17 @@ pub mod whitespace_mode {
     impl super::WhitespaceMode for RemoveKeepNewLine {}
 }
 
+#[inline]
+const fn is_valid_utf8_first_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+          0b00000000..=0b01111111
+        | 0b11000000..=0b11011111
+        | 0b11100000..=0b11101111
+        | 0b11110000..=0b11110111
+    )
+}
+
 /// Transforms a source file into a token stream
 ///
 /// # Example
@@ -180,85 +191,65 @@ impl<'a, Reader: TokenReader, WSM: WhitespaceMode> Lexer<'a, Reader, WSM> {
             pos: TextPosition {
                 file_id,
                 byte_offset: 0,
-                line: 0,
-                column: 0,
             },
         }
     }
 
     #[inline]
     fn remaining_text(&self) -> &str {
-        &self.file.text()[self.pos.byte_offset..]
+        &self.file.text()[(self.pos.byte_offset as usize)..]
     }
 
     fn advance_n(&mut self, n: usize) {
-        let mut new_byte_offset = self.file.text().len();
-        let mut new_line = self.pos.line;
-        let mut new_column = self.pos.column;
+        let new_byte_offset = (self.pos.byte_offset as usize) + n;
 
-        for (p, c) in self.remaining_text().char_indices() {
-            if p >= n {
-                assert_eq!(p, n, "the advance count did not yield a valid UTF-8 string");
-                new_byte_offset = self.pos.byte_offset + p;
-                break;
-            }
-
-            if c == '\n' {
-                new_line += 1;
-                new_column = 0;
-            } else {
-                new_column += 1;
+        if new_byte_offset > self.file.text().len() {
+            panic!("exceeded source code length");
+        } else if let Some(&byte) = self.file.text().as_bytes().get(new_byte_offset) {
+            if !is_valid_utf8_first_byte(byte) {
+                panic!("invalid UTF-8 offset into source code");
             }
         }
 
         self.pos = TextPosition {
             file_id: self.file_id,
-            byte_offset: new_byte_offset,
-            line: new_line,
-            column: new_column,
+            byte_offset: new_byte_offset as u32,
         };
     }
 
     fn advance_while(&mut self, predicate: impl Fn(char) -> bool) {
         let mut new_byte_offset = self.file.text().len();
-        let mut new_line = self.pos.line;
-        let mut new_column = self.pos.column;
 
         for (p, c) in self.remaining_text().char_indices() {
             if !predicate(c) {
-                new_byte_offset = self.pos.byte_offset + p;
+                new_byte_offset = (self.pos.byte_offset as usize) + p;
                 break;
-            }
-
-            if c == '\n' {
-                new_line += 1;
-                new_column = 0;
-            } else {
-                new_column += 1;
             }
         }
 
         self.pos = TextPosition {
             file_id: self.file_id,
-            byte_offset: new_byte_offset,
-            line: new_line,
-            column: new_column,
+            byte_offset: new_byte_offset as u32,
         };
     }
 
     fn next_inner(&mut self) -> Option<Token<Reader::Token>> {
-        if self.pos.byte_offset < self.file.text().len() {
-            let start_pos = self.pos;
+        if (self.pos.byte_offset as usize) < self.file.text().len() {
+            let start_byte_offset = self.pos.byte_offset;
             let ReadTokenResult {
                 token,
                 consumed_bytes,
             } = Reader::read_token(self.remaining_text());
             self.advance_n(consumed_bytes);
-            let end_pos = self.pos;
+            let end_byte_offset = self.pos.byte_offset;
 
             Some(Token {
                 kind: token,
-                span: TextSpan { start_pos, end_pos },
+                span: TextSpan {
+                    file_id: self.pos.file_id,
+                    start_byte_offset,
+                    end_byte_offset,
+                },
             })
         } else {
             None

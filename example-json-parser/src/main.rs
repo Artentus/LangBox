@@ -1,5 +1,4 @@
 #![feature(trait_alias)]
-#![cfg_attr(feature = "bench", feature(bench_black_box))]
 
 use langbox::*;
 use std::collections::HashMap;
