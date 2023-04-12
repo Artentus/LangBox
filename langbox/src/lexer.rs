@@ -335,7 +335,7 @@ pub(crate) mod test {
         for<'a> Lexer<'a, TestTokenReader, WSM>: Iterator<Item = Token<TestTokenKind>>,
     {
         let mut file_server = crate::file_system::FileServer::new();
-        let file_id = file_server.register_file_memory("<test>", text);
+        let file_id = file_server.register_file_memory("<test>", text).unwrap();
 
         let lexer = Lexer::<TestTokenReader, WSM>::new(file_id, &file_server);
         lexer.collect()

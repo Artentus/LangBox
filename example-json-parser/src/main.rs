@@ -385,7 +385,9 @@ const TEST_JSON: &str = r#"
 #[cfg(feature = "bench")]
 fn main() {
     let mut file_server = FileServer::new();
-    let file_id = file_server.register_file_memory("<test>", TEST_JSON);
+    let file_id = file_server
+        .register_file_memory("<test>", TEST_JSON)
+        .unwrap();
 
     for _ in 0..10000 {
         let f = std::hint::black_box(|| {
@@ -403,7 +405,9 @@ fn main() {
 #[cfg(not(feature = "bench"))]
 fn main() {
     let mut file_server = FileServer::new();
-    let file_id = file_server.register_file_memory("<test>", TEST_JSON);
+    let file_id = file_server
+        .register_file_memory("<test>", TEST_JSON)
+        .unwrap();
 
     let lexer = JLexer::new(file_id, &file_server);
     let tokens = lexer.collect::<Vec<_>>();

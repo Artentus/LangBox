@@ -13,17 +13,3 @@ note: required by a bound in `_map`
     |
     |     f: impl Fn(T) -> U + Copy,
     |             ^^^^^^^^^^ required by this bound in `_map`
-
-error[E0277]: expected a `Fn<(T,)>` closure, found `bool`
-   --> tests/invalid_parser_map.rs:6:5
-    |
-6   |     parser!(a->[false])
-    |     ^^^^^^^^^^^^^^^^^^^ expected an `Fn<(T,)>` closure, found `bool`
-    |
-    = help: the trait `Fn<(T,)>` is not implemented for `bool`
-note: required by a bound in `_map`
-   --> src/parser.rs
-    |
-    |     f: impl Fn(T) -> U + Copy,
-    |             ^^^^^^^^^^ required by this bound in `_map`
-    = note: this error originates in the macro `parser` (in Nightly builds, run with -Z macro-backtrace for more info)
