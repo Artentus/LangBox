@@ -23,7 +23,7 @@ enum JsonTokenKind {
 enum JsonTokenReader {}
 
 impl JsonTokenReader {
-    fn read_number(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::Token>> {
+    fn read_number(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::TokenKind>> {
         // This only supports numbers in a(.b)? format to keep the code simpler.
 
         let mut chars = text.char_indices();
@@ -54,7 +54,7 @@ impl JsonTokenReader {
         }
     }
 
-    fn read_string(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::Token>> {
+    fn read_string(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::TokenKind>> {
         // This does not support unicode escape sequences to keep the code simpler.
 
         let mut chars = text.char_indices();
@@ -109,9 +109,9 @@ impl JsonTokenReader {
 }
 
 impl TokenReader for JsonTokenReader {
-    type Token = JsonTokenKind;
+    type TokenKind = JsonTokenKind;
 
-    fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
+    fn read_token(text: &str) -> ReadTokenResult<Self::TokenKind> {
         const KEYWORDS: &[(&str, JsonTokenKind)] = &[
             ("{", JsonTokenKind::OpenBrace),
             ("}", JsonTokenKind::CloseBrace),

@@ -505,7 +505,7 @@ pub fn _and_then<TokenKind, T1, T2, E>(
                 remaining,
             } => ParseResult::Match {
                 value: (v1, v2),
-                span: s1.join(&s2),
+                span: s1.join(s2),
                 remaining,
             },
             InfallibleParseResult::NoMatch => ParseResult::NoMatch,
@@ -531,7 +531,7 @@ pub fn _prefix<TokenKind, T1, T2, E>(
                 ..
             } => ParseResult::Match {
                 value: v1,
-                span: s1.join(&s2),
+                span: s1.join(s2),
                 remaining,
             },
             InfallibleParseResult::NoMatch => ParseResult::NoMatch,
@@ -557,7 +557,7 @@ pub fn _suffix<TokenKind, T1, T2, E>(
                 remaining,
             } => ParseResult::Match {
                 value: v2,
-                span: s1.join(&s2),
+                span: s1.join(s2),
                 remaining,
             },
             InfallibleParseResult::NoMatch => ParseResult::NoMatch,
@@ -656,7 +656,7 @@ pub fn _many<TokenKind, T, E>(
                     remaining,
                 } => {
                     result.push(value);
-                    full_span = full_span.join(&span);
+                    full_span = full_span.join(span);
                     input = remaining;
                 }
                 InfallibleParseResult::NoMatch => break,
@@ -710,7 +710,7 @@ pub fn between<TokenKind, T1, T2, T3, E>(
                 } => {
                     ParseResult::Match {
                         value,
-                        span: s1.join(&s2),
+                        span: s1.join(s2),
                         remaining,
                     }
                 }
@@ -755,12 +755,12 @@ pub fn sep_by<TokenKind, T, S, E>(
                                 remaining,
                             } => {
                                 result.push(value);
-                                full_span = full_span.join(&span);
+                                full_span = full_span.join(span);
                                 input = remaining;
                             }
                             InfallibleParseResult::NoMatch => {
                                 if allow_trailing {
-                                    full_span = full_span.join(&sep_span);
+                                    full_span = full_span.join(sep_span);
                                     input = sep_remaining;
                                 }
 
@@ -809,7 +809,7 @@ pub fn repeat<TokenKind, T, E>(
                     remaining,
                 } => {
                     result.push(value);
-                    full_span = full_span.join(&span);
+                    full_span = full_span.join(span);
                     input = remaining;
                 }
                 InfallibleParseResult::NoMatch => return ParseResult::NoMatch,
@@ -1134,7 +1134,7 @@ pub(crate) mod test {
     fn choice() {
         let p = choice!(
             parse_test_token(TestTokenKind::A),
-            parse_test_token(TestTokenKind::B)
+            parse_test_token(TestTokenKind::B),
         );
 
         test_parser(p, "", None);
@@ -1149,7 +1149,7 @@ pub(crate) mod test {
     fn sequence() {
         let p = sequence!(
             parse_test_token(TestTokenKind::A),
-            parse_test_token(TestTokenKind::B)
+            parse_test_token(TestTokenKind::B),
         );
 
         test_parser(p, "", None);
@@ -1167,7 +1167,7 @@ pub(crate) mod test {
         test_parser(super::eof(), "", Some(()));
         test_parser(super::eof(), "a", None);
 
-        let p = sequence!(parse_test_token(TestTokenKind::A), super::eof(),);
+        let p = sequence!(parse_test_token(TestTokenKind::A), super::eof());
 
         test_parser(p, "a", Some(('a', ())));
     }

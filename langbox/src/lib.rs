@@ -15,9 +15,9 @@
 //! enum JsonTokenReader {}
 //!
 //! impl TokenReader for JsonTokenReader {
-//!     type Token = JsonTokenKind;
+//!     type TokenKind = JsonTokenKind;
 //!     
-//!     fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
+//!     fn read_token(text: &str) -> ReadTokenResult<Self::TokenKind> {
 //!         // ...
 //!         # ReadTokenResult {
 //!         #     token: JsonTokenKind::None,
@@ -66,12 +66,42 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::{Deref, Range};
+use std::rc::Rc;
 
 mod file_system;
 pub use file_system::*;
 
+///
+#[derive(Debug, Clone)]
+pub struct SourceRef {
+    source: Rc<str>,
+    range: Range<u32>,
+}
+
+impl Deref for SourceRef {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        let start = self.range.start as usize;
+        let end = self.range.end as usize;
+        &self.source[start..end]
+    }
+}
+
+impl AsRef<str> for SourceRef {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        let start = self.range.start as usize;
+        let end = self.range.end as usize;
+        &self.source[start..end]
+    }
+}
+
 /// Defines a position in the text of a source file
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct TextPosition {
     file_id: FileId,
     byte_offset: u32,
@@ -80,12 +110,12 @@ pub struct TextPosition {
 impl TextPosition {
     /// The source file this position is referring to
     #[inline]
-    pub fn file_id(&self) -> FileId {
+    pub fn file_id(self) -> FileId {
         self.file_id
     }
 
     /// Gets the zero-based line and column numbers corresponding to this position
-    pub fn line_column(&self, file_server: &FileServer) -> (u32, u32) {
+    pub fn line_column(self, file_server: &FileServer) -> (u32, u32) {
         let file = file_server.get_file(self.file_id).expect("invalid file ID");
 
         let mut line = 0;
@@ -109,34 +139,28 @@ impl TextPosition {
 
     /// Finds the smaller of two text positions.
     /// The smaller position is defined as the position that appears first in the text.
-    pub fn min(&self, other: &Self) -> Self {
+    pub fn min(self, other: Self) -> Self {
         match self
             .partial_cmp(&other)
             .expect("positions belong to different files")
         {
-            Ordering::Less => *self,
-            Ordering::Equal => *self,
-            Ordering::Greater => *other,
+            Ordering::Less => self,
+            Ordering::Equal => self,
+            Ordering::Greater => other,
         }
     }
 
     /// Finds the larger of two text positions.
     /// The larger position is defined as the position that appears last in the text.
-    pub fn max(&self, other: &Self) -> Self {
+    pub fn max(self, other: Self) -> Self {
         match self
             .partial_cmp(&other)
             .expect("positions belong to different files")
         {
-            Ordering::Less => *other,
-            Ordering::Equal => *self,
-            Ordering::Greater => *self,
+            Ordering::Less => other,
+            Ordering::Equal => self,
+            Ordering::Greater => self,
         }
-    }
-}
-
-impl PartialEq for TextPosition {
-    fn eq(&self, other: &Self) -> bool {
-        (self.file_id == other.file_id) && (self.byte_offset == other.byte_offset)
     }
 }
 
@@ -150,15 +174,9 @@ impl PartialOrd for TextPosition {
     }
 }
 
-impl Hash for TextPosition {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.file_id.hash(state);
-        self.byte_offset.hash(state);
-    }
-}
-
 /// Defines one contiguous region in the text of a source file
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct TextSpan {
     file_id: FileId,
     start_byte_offset: u32,
@@ -166,15 +184,22 @@ pub struct TextSpan {
 }
 
 impl TextSpan {
+    /// An empty span
+    pub const EMPTY: Self = Self {
+        file_id: FileId::NONE,
+        start_byte_offset: 0,
+        end_byte_offset: 0,
+    };
+
     /// The source file this span is referring to
     #[inline]
-    pub fn file_id(&self) -> FileId {
+    pub fn file_id(self) -> FileId {
         self.file_id
     }
 
     /// The inclusive start position of the span
     #[inline]
-    pub fn start_pos(&self) -> TextPosition {
+    pub fn start_pos(self) -> TextPosition {
         TextPosition {
             file_id: self.file_id,
             byte_offset: self.start_byte_offset,
@@ -183,22 +208,36 @@ impl TextSpan {
 
     /// The exclusive end position of the span
     #[inline]
-    pub fn end_pos(&self) -> TextPosition {
+    pub fn end_pos(self) -> TextPosition {
         TextPosition {
             file_id: self.file_id,
             byte_offset: self.end_byte_offset,
         }
     }
 
-    /// Gets the string slice corresponding to this span
-    pub fn text<'a>(&self, file_server: &'a FileServer) -> &'a str {
+    /// Gets the source text corresponding to this span
+    pub fn source<'a>(self, file_server: &'a FileServer) -> &'a str {
         let file = file_server.get_file(self.file_id).expect("invalid file ID");
-        &file.text()[(self.start_byte_offset as usize)..(self.end_byte_offset as usize)]
+
+        let start = self.start_byte_offset as usize;
+        let end = self.end_byte_offset as usize;
+
+        &file.text()[start..end]
+    }
+
+    /// Gets the source text corresponding to this span
+    pub fn source_clone(self, file_server: &FileServer) -> SourceRef {
+        let file = file_server.get_file(self.file_id).expect("invalid file ID");
+
+        SourceRef {
+            source: file.text_clone(),
+            range: self.start_byte_offset..self.end_byte_offset,
+        }
     }
 
     /// Joins two spans.
     /// The resulting span will define a region that includes the regions of both spans entirely as well as anything in between.
-    pub fn join(&self, other: &Self) -> Self {
+    pub fn join(self, other: Self) -> Self {
         assert_eq!(
             self.file_id, other.file_id,
             "spans belong to different files"
@@ -215,20 +254,12 @@ impl TextSpan {
     }
 }
 
-impl PartialEq for TextSpan {
-    fn eq(&self, other: &Self) -> bool {
-        (self.file_id == other.file_id)
-            && (self.start_byte_offset == other.start_byte_offset)
-            && (self.end_byte_offset == other.end_byte_offset)
-    }
-}
-
 #[doc(hidden)]
 pub fn _join_spans(spans: &[TextSpan]) -> TextSpan {
     assert!(spans.len() > 0);
 
     let mut result = spans[0];
-    for span in spans[1..].iter() {
+    for &span in spans[1..].iter() {
         result = result.join(span);
     }
     result

@@ -40,21 +40,21 @@ pub struct ReadTokenResult<Kind> {
 /// enum JsonTokenReader {}
 ///
 /// impl JsonTokenReader {
-///     fn read_number(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::Token>> {
+///     fn read_number(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::TokenKind>> {
 ///         // ...
 ///         # None
 ///     }
 ///     
-///     fn read_string(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::Token>> {
+///     fn read_string(text: &str) -> Option<ReadTokenResult<<Self as TokenReader>::TokenKind>> {
 ///         // ...
 ///         # None
 ///     }
 /// }
 ///
 /// impl langbox::TokenReader for JsonTokenReader {
-///     type Token = JsonTokenKind;
+///     type TokenKind = JsonTokenKind;
 ///     
-///     fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
+///     fn read_token(text: &str) -> ReadTokenResult<Self::TokenKind> {
 ///         // `text` is guaranteed to have a length > 0
 ///
 ///         const KEYWORDS: &[(&str, JsonTokenKind)] = &[
@@ -95,18 +95,19 @@ pub struct ReadTokenResult<Kind> {
 /// ```
 pub trait TokenReader {
     /// The type of token being produced
-    type Token;
+    type TokenKind;
 
     /// Reads one token from the input text
-    fn read_token(text: &str) -> ReadTokenResult<Self::Token>;
+    fn read_token(text: &str) -> ReadTokenResult<Self::TokenKind>;
 }
 
 /// A syntax token
+#[derive(Clone, Copy)]
 pub struct Token<Kind> {
-    /// The implementation-specific token kind
-    pub kind: Kind,
     /// The span corresponding to this token
     pub span: TextSpan,
+    /// The implementation-specific token kind
+    pub kind: Kind,
 }
 
 mod private {
@@ -157,8 +158,8 @@ const fn is_valid_utf8_first_byte(byte: u8) -> bool {
 /// # enum YourTokenKind { None }
 /// # enum YourTokenReader {}
 /// # impl langbox::TokenReader for YourTokenReader {
-/// #     type Token = YourTokenKind;
-/// #     fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
+/// #     type TokenKind = YourTokenKind;
+/// #     fn read_token(text: &str) -> ReadTokenResult<Self::TokenKind> {
 /// #         ReadTokenResult {
 /// #             token: YourTokenKind::None,
 /// #             consumed_bytes: 0,
@@ -233,7 +234,7 @@ impl<'a, Reader: TokenReader, WSM: WhitespaceMode> Lexer<'a, Reader, WSM> {
         };
     }
 
-    fn next_inner(&mut self) -> Option<Token<Reader::Token>> {
+    fn next_inner(&mut self) -> Option<Token<Reader::TokenKind>> {
         if (self.pos.byte_offset as usize) < self.file.text().len() {
             let start_byte_offset = self.pos.byte_offset;
             let ReadTokenResult {
@@ -244,12 +245,12 @@ impl<'a, Reader: TokenReader, WSM: WhitespaceMode> Lexer<'a, Reader, WSM> {
             let end_byte_offset = self.pos.byte_offset;
 
             Some(Token {
-                kind: token,
                 span: TextSpan {
-                    file_id: self.pos.file_id,
                     start_byte_offset,
                     end_byte_offset,
+                    file_id: self.pos.file_id,
                 },
+                kind: token,
             })
         } else {
             None
@@ -258,7 +259,7 @@ impl<'a, Reader: TokenReader, WSM: WhitespaceMode> Lexer<'a, Reader, WSM> {
 }
 
 impl<'a, Reader: TokenReader> Iterator for Lexer<'a, Reader, whitespace_mode::Keep> {
-    type Item = Token<Reader::Token>;
+    type Item = Token<Reader::TokenKind>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -267,7 +268,7 @@ impl<'a, Reader: TokenReader> Iterator for Lexer<'a, Reader, whitespace_mode::Ke
 }
 
 impl<'a, Reader: TokenReader> Iterator for Lexer<'a, Reader, whitespace_mode::Remove> {
-    type Item = Token<Reader::Token>;
+    type Item = Token<Reader::TokenKind>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -277,7 +278,7 @@ impl<'a, Reader: TokenReader> Iterator for Lexer<'a, Reader, whitespace_mode::Re
 }
 
 impl<'a, Reader: TokenReader> Iterator for Lexer<'a, Reader, whitespace_mode::RemoveKeepNewLine> {
-    type Item = Token<Reader::Token>;
+    type Item = Token<Reader::TokenKind>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -311,9 +312,9 @@ pub(crate) mod test {
 
     pub(crate) enum TestTokenReader {}
     impl TokenReader for TestTokenReader {
-        type Token = TestTokenKind;
+        type TokenKind = TestTokenKind;
 
-        fn read_token(text: &str) -> ReadTokenResult<Self::Token> {
+        fn read_token(text: &str) -> ReadTokenResult<Self::TokenKind> {
             let c = text.chars().next().expect("invalid text");
 
             let kind = match c {
@@ -338,7 +339,8 @@ pub(crate) mod test {
         let file_id = file_server.register_file_memory("<test>", text).unwrap();
 
         let lexer = Lexer::<TestTokenReader, WSM>::new(file_id, &file_server);
-        lexer.collect()
+        let tokens = lexer.collect();
+        tokens
     }
 
     fn test_lexer<WSM: WhitespaceMode>(text: &'static str, expected_tokens: &[TestTokenKind])

@@ -1,6 +1,6 @@
 [package]
 name = "langbox"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Mathis Rech"]
 license = "MIT"
@@ -21,3 +21,4 @@ trybuild = { version = "1.0", features = ["diff"] }
 
 [dependencies]
 langbox_procmacro = { path = "../langbox_procmacro", version = "0.1" }
+ahash = "0.8.3"
