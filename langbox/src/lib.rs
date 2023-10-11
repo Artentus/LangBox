@@ -51,16 +51,19 @@
 //!     let stream = TokenStream::new(&tokens);
 //!
 //!     // Finally after all files have been tokenized we can parse the token stream.
-//!     match jvalue().run(stream).expect("malformed JSON input") {
-//!         InfallibleParseResult::Match { value, .. } => {
+//!     match jvalue().run(stream) {
+//!         ParseResult::Match(ParsedValue { value, .. }) => {
 //!             // `value` contains the parsed JSON value
 //!         }
-//!         InfallibleParseResult::NoMatch => { /* empty input */ }
+//!         ParseResult::NoMatch => { /* empty input */ }
+//!         ParseResult::Err(_) => panic!("malformed JSON input"),
 //!     }
 //! }
 //! ```
 #![deny(missing_docs)]
 #![feature(try_trait_v2)]
+#![feature(never_type)]
+#![feature(exhaustive_patterns)]
 #![cfg_attr(target_family = "windows", feature(windows_by_handle))]
 
 use std::cmp::Ordering;
