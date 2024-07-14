@@ -1,4 +1,6 @@
-use super::*;
+use crate::lexer::Token;
+use crate::{TextPosition, TextSpan};
+use std::convert::Infallible;
 use std::ops::{ControlFlow, FromResidual, Try};
 
 /// A stream of syntax tokens
@@ -55,10 +57,7 @@ impl<'a, Kind> TokenStream<'a, Kind> {
             Some(t) => t.span.start_pos(),
             None => match self.tokens.iter().last() {
                 Some(t) => t.span.end_pos(),
-                None => TextPosition {
-                    file_id: FileId::NONE,
-                    byte_offset: 0,
-                },
+                None => TextPosition::NONE,
             },
         };
 
@@ -169,13 +168,14 @@ impl<'a, TokenKind, T, E> ParseResult<ParsedValue<'a, TokenKind, T>, E> {
 
 impl<T, E> Try for ParseResult<T, E> {
     type Output = T;
-    type Residual = ParseResult<!, E>;
+    type Residual = ParseResult<Infallible, E>;
 
     #[inline]
     fn from_output(output: Self::Output) -> Self {
         Self::Match(output)
     }
 
+    #[inline]
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Self::Match(v) => ControlFlow::Continue(v),
@@ -191,33 +191,8 @@ impl<T, E> FromResidual for ParseResult<T, E> {
         match residual {
             ParseResult::NoMatch => Self::NoMatch,
             ParseResult::Err(err) => Self::Err(err),
+            ParseResult::Match(_) => unreachable!(),
         }
-    }
-}
-
-/// Transforms tokens from a token stream into structured data
-///
-/// Parsers can be constructed using the [`parse_fn!`], [`parser!`],
-/// [`choice!`] and [`sequence!`] macros.
-pub trait Parser<TokenKind, T, E>: Copy {
-    /// Runs the parser on the given input
-    fn run<'a>(
-        &self,
-        input: TokenStream<'a, TokenKind>,
-    ) -> ParseResult<ParsedValue<'a, TokenKind, T>, E>;
-}
-
-impl<TokenKind, T, E, F> Parser<TokenKind, T, E> for F
-where
-    for<'a> F:
-        Fn(TokenStream<'a, TokenKind>) -> ParseResult<ParsedValue<'a, TokenKind, T>, E> + Copy,
-{
-    #[inline]
-    fn run<'a>(
-        &self,
-        input: TokenStream<'a, TokenKind>,
-    ) -> ParseResult<ParsedValue<'a, TokenKind, T>, E> {
-        self(input)
     }
 }
 
@@ -277,176 +252,287 @@ macro_rules! parse_fn {
     };
 }
 
-#[doc(hidden)]
-pub fn _always<TokenKind, E>() -> impl Parser<TokenKind, (), E> {
-    parse_fn!(|input| ParseResult::Match(ParsedValue {
-        value: (),
-        span: input.empty_span(),
-        remaining: input,
-    }))
+impl<TokenKind, T, E, F> Parser<TokenKind, T, E> for F
+where
+    for<'a> F:
+        Fn(TokenStream<'a, TokenKind>) -> ParseResult<ParsedValue<'a, TokenKind, T>, E> + Copy,
+{
+    #[inline]
+    fn run<'a>(
+        &self,
+        input: TokenStream<'a, TokenKind>,
+    ) -> ParseResult<ParsedValue<'a, TokenKind, T>, E> {
+        self(input)
+    }
 }
 
-#[doc(hidden)]
-pub fn _opt<TokenKind, T, E>(
-    p: impl Parser<TokenKind, T, E>,
-) -> impl Parser<TokenKind, Option<T>, E> {
-    parse_fn!(|input| match p.run(input) {
-        ParseResult::Match(v) => ParseResult::Match(v.map(Some)),
-        ParseResult::NoMatch => ParseResult::Match(ParsedValue {
-            value: None,
-            span: input.empty_span(),
-            remaining: input,
-        }),
-        ParseResult::Err(err) => ParseResult::Err(err),
-    })
-}
+/// Transforms tokens from a token stream into structured data
+///
+/// Parsers can be constructed using the [`parse_fn!`], [`parser!`],
+/// [`choice!`] and [`sequence!`] macros.
+pub trait Parser<TokenKind, T, E>: Copy {
+    /// Runs the parser on the given input
+    fn run<'a>(
+        &self,
+        input: TokenStream<'a, TokenKind>,
+    ) -> ParseResult<ParsedValue<'a, TokenKind, T>, E>;
 
-#[doc(hidden)]
-pub fn _or_default<TokenKind, T: Default, E>(
-    p: impl Parser<TokenKind, T, E>,
-) -> impl Parser<TokenKind, T, E> {
-    parse_fn!(|input| match p.run(input) {
-        ParseResult::Match(v) => ParseResult::Match(v),
-        ParseResult::NoMatch => ParseResult::Match(ParsedValue {
-            value: T::default(),
-            span: input.empty_span(),
-            remaining: input,
-        }),
-        ParseResult::Err(err) => ParseResult::Err(err),
-    })
-}
-
-#[doc(hidden)]
-pub fn _and_then<TokenKind, T1, T2, E>(
-    first: impl Parser<TokenKind, T1, E>,
-    second: impl Parser<TokenKind, T2, E>,
-) -> impl Parser<TokenKind, (T1, T2), E> {
-    parse_fn!(|input| {
-        let v1 = first.run(input)?;
-        let v2 = second.run(v1.remaining)?;
-        ParseResult::Match(ParsedValue {
-            value: (v1.value, v2.value),
-            span: v1.span.join(v2.span),
-            remaining: v2.remaining,
+    /// Returns an error if the parser doesn't match
+    fn require(
+        self,
+        f: impl Fn(TokenStream<TokenKind>) -> E + Copy,
+    ) -> impl Parser<TokenKind, T, E> {
+        parse_fn!(|input| match self.run(input) {
+            ParseResult::Match(v) => ParseResult::Match(v),
+            ParseResult::NoMatch => ParseResult::Err(f(input)),
+            ParseResult::Err(err) => ParseResult::Err(err),
         })
-    })
-}
+    }
 
-#[doc(hidden)]
-pub fn _prefix<TokenKind, T1, T2, E>(
-    first: impl Parser<TokenKind, T1, E>,
-    second: impl Parser<TokenKind, T2, E>,
-) -> impl Parser<TokenKind, T1, E> {
-    parse_fn!(|input| {
-        let v1 = first.run(input)?;
-        let v2 = second.run(v1.remaining)?;
-        ParseResult::Match(ParsedValue {
-            value: v1.value,
-            span: v1.span.join(v2.span),
-            remaining: v2.remaining,
+    /// Returns `None` if the parser doesn't match
+    fn opt(self) -> impl Parser<TokenKind, Option<T>, E> {
+        parse_fn!(|input| match self.run(input) {
+            ParseResult::Match(v) => ParseResult::Match(v.map(Some)),
+            ParseResult::NoMatch => ParseResult::Match(ParsedValue {
+                value: None,
+                span: input.empty_span(),
+                remaining: input,
+            }),
+            ParseResult::Err(err) => ParseResult::Err(err),
         })
-    })
-}
+    }
 
-#[doc(hidden)]
-pub fn _suffix<TokenKind, T1, T2, E>(
-    first: impl Parser<TokenKind, T1, E>,
-    second: impl Parser<TokenKind, T2, E>,
-) -> impl Parser<TokenKind, T2, E> {
-    parse_fn!(|input| {
-        let v1 = first.run(input)?;
-        let v2 = second.run(v1.remaining)?;
-        ParseResult::Match(ParsedValue {
-            value: v2.value,
-            span: v1.span.join(v2.span),
-            remaining: v2.remaining,
+    /// Returns a value if the parser doesn't match
+    fn or(self, val: T) -> impl Parser<TokenKind, T, E>
+    where
+        T: Copy,
+    {
+        parse_fn!(|input| match self.run(input) {
+            ParseResult::Match(v) => ParseResult::Match(v),
+            ParseResult::NoMatch => ParseResult::Match(ParsedValue {
+                value: val,
+                span: input.empty_span(),
+                remaining: input
+            }),
+            ParseResult::Err(err) => ParseResult::Err(err),
         })
-    })
-}
+    }
 
-#[doc(hidden)]
-pub fn _or_else<TokenKind, T, E>(
-    first: impl Parser<TokenKind, T, E>,
-    second: impl Parser<TokenKind, T, E>,
-) -> impl Parser<TokenKind, T, E> {
-    parse_fn!(|input| match first.run(input) {
-        ParseResult::Match(v) => ParseResult::Match(v),
-        ParseResult::NoMatch => second.run(input),
-        ParseResult::Err(err) => ParseResult::Err(err),
-    })
-}
+    /// Returns a default value if the parser doesn't match
+    fn or_default(self) -> impl Parser<TokenKind, T, E>
+    where
+        T: Default,
+    {
+        parse_fn!(|input| match self.run(input) {
+            ParseResult::Match(v) => ParseResult::Match(v),
+            ParseResult::NoMatch => ParseResult::Match(ParsedValue {
+                value: T::default(),
+                span: input.empty_span(),
+                remaining: input,
+            }),
+            ParseResult::Err(err) => ParseResult::Err(err),
+        })
+    }
 
-#[doc(hidden)]
-pub fn _map_to<TokenKind, T, U: Copy, E>(
-    p: impl Parser<TokenKind, T, E>,
-    val: U,
-) -> impl Parser<TokenKind, U, E> {
-    parse_fn!(|input| p.run(input).map_value(|_| val))
-}
+    /// Matches either this parser or another
+    fn or_else(self, second: impl Parser<TokenKind, T, E>) -> impl Parser<TokenKind, T, E> {
+        parse_fn!(|input| match self.run(input) {
+            ParseResult::Match(v) => ParseResult::Match(v),
+            ParseResult::NoMatch => second.run(input),
+            ParseResult::Err(err) => ParseResult::Err(err),
+        })
+    }
 
-#[doc(hidden)]
-pub fn _map<TokenKind, T, U, E>(
-    p: impl Parser<TokenKind, T, E>,
-    f: impl Fn(T) -> U + Copy,
-) -> impl Parser<TokenKind, U, E> {
-    parse_fn!(|input| p.run(input).map_value(f))
-}
+    /// Matches another parser after this one
+    fn and_then<U>(
+        self,
+        second: impl Parser<TokenKind, U, E>,
+    ) -> impl Parser<TokenKind, (T, U), E> {
+        parse_fn!(|input| {
+            let v1 = self.run(input)?;
+            let v2 = second.run(v1.remaining)?;
+            ParseResult::Match(ParsedValue {
+                value: (v1.value, v2.value),
+                span: v1.span.join(v2.span),
+                remaining: v2.remaining,
+            })
+        })
+    }
 
-#[doc(hidden)]
-pub fn _map_err<TokenKind, T, E, F>(
-    p: impl Parser<TokenKind, T, E>,
-    f: impl Fn(E) -> F + Copy,
-) -> impl Parser<TokenKind, T, F> {
-    parse_fn!(|input| p.run(input).map_err(f))
-}
+    /// Maps the result of the parser on match to a value
+    fn map_to<U: Copy>(self, val: U) -> impl Parser<TokenKind, U, E> {
+        parse_fn!(|input| self.run(input).map_value(|_| val))
+    }
 
-#[doc(hidden)]
-pub fn _require<TokenKind, T, E>(
-    p: impl Parser<TokenKind, T, E>,
-    f: impl Fn(TokenStream<TokenKind>) -> E + Copy,
-) -> impl Parser<TokenKind, T, E> {
-    parse_fn!(|input| match p.run(input) {
-        ParseResult::Match(v) => ParseResult::Match(v),
-        ParseResult::NoMatch => ParseResult::Err(f(input)),
-        ParseResult::Err(err) => ParseResult::Err(err),
-    })
-}
+    /// Maps the result of the parser on match using a function
+    fn map<U>(self, f: impl Fn(T) -> U + Copy) -> impl Parser<TokenKind, U, E> {
+        parse_fn!(|input| self.run(input).map_value(f))
+    }
 
-#[doc(hidden)]
-pub fn _many<TokenKind, T, E>(
-    p: impl Parser<TokenKind, T, E>,
-    allow_empty: bool,
-) -> impl Parser<TokenKind, Vec<T>, E> {
-    parse_fn!(|mut input| {
-        let mut result = Vec::new();
-        let mut full_span = input.empty_span();
+    /// Maps the error of the parser using a function
+    fn map_err<F>(self, f: impl Fn(E) -> F + Copy) -> impl Parser<TokenKind, T, F> {
+        parse_fn!(|input| self.run(input).map_err(f))
+    }
 
-        loop {
-            match p.run(input) {
+    /// Matches the parser multiple times
+    fn many(self, allow_empty: bool) -> impl Parser<TokenKind, Vec<T>, E> {
+        parse_fn!(|mut input| {
+            let mut result = Vec::new();
+            let mut full_span = input.empty_span();
+
+            loop {
+                match self.run(input) {
+                    ParseResult::Match(ParsedValue {
+                        value,
+                        span,
+                        remaining,
+                    }) => {
+                        result.push(value);
+                        full_span = full_span.join(span);
+                        input = remaining;
+                    }
+                    ParseResult::NoMatch => break,
+                    ParseResult::Err(err) => return ParseResult::Err(err),
+                }
+            }
+
+            if allow_empty || (result.len() > 0) {
+                ParseResult::Match(ParsedValue {
+                    value: result,
+                    span: full_span,
+                    remaining: input,
+                })
+            } else {
+                ParseResult::NoMatch
+            }
+        })
+    }
+
+    /// Matches the parser multiple times, separated by the given separator
+    fn sep_by<S>(
+        self,
+        sep: impl Parser<TokenKind, S, E>,
+        allow_empty: bool,
+        allow_trailing: bool,
+    ) -> impl Parser<TokenKind, Vec<T>, E> {
+        parse_fn!(|input| {
+            match self.run(input) {
                 ParseResult::Match(ParsedValue {
                     value,
                     span,
                     remaining,
                 }) => {
+                    let mut result = Vec::new();
                     result.push(value);
-                    full_span = full_span.join(span);
-                    input = remaining;
-                }
-                ParseResult::NoMatch => break,
-                ParseResult::Err(err) => return ParseResult::Err(err),
-            }
-        }
 
-        if allow_empty || (result.len() > 0) {
+                    let mut full_span = span;
+                    let mut input = remaining;
+
+                    loop {
+                        match sep.run(input) {
+                            ParseResult::Match(ParsedValue {
+                                span: sep_span,
+                                remaining: sep_remaining,
+                                ..
+                            }) => match self.run(sep_remaining) {
+                                ParseResult::Match(ParsedValue {
+                                    value,
+                                    span,
+                                    remaining,
+                                }) => {
+                                    result.push(value);
+                                    full_span = full_span.join(span);
+                                    input = remaining;
+                                }
+                                ParseResult::NoMatch => {
+                                    if allow_trailing {
+                                        full_span = full_span.join(sep_span);
+                                        input = sep_remaining;
+                                    }
+
+                                    break;
+                                }
+                                ParseResult::Err(err) => return ParseResult::Err(err),
+                            },
+                            ParseResult::NoMatch => break,
+                            ParseResult::Err(err) => return ParseResult::Err(err),
+                        }
+                    }
+
+                    ParseResult::Match(ParsedValue {
+                        value: result,
+                        span: full_span,
+                        remaining: input,
+                    })
+                }
+                ParseResult::NoMatch => {
+                    if allow_empty {
+                        ParseResult::Match(ParsedValue {
+                            value: Vec::new(),
+                            span: input.empty_span(),
+                            remaining: input,
+                        })
+                    } else {
+                        ParseResult::NoMatch
+                    }
+                }
+                ParseResult::Err(err) => ParseResult::Err(err),
+            }
+        })
+    }
+
+    /// Matches the parser exactly 'count' times
+    fn repeat(self, count: usize) -> impl Parser<TokenKind, Vec<T>, E> {
+        parse_fn!(|mut input| {
+            let mut result = Vec::with_capacity(count);
+            let mut full_span = input.empty_span();
+
+            for _ in 0..count {
+                let ParsedValue {
+                    value,
+                    span,
+                    remaining,
+                } = self.run(input)?;
+
+                result.push(value);
+                full_span = full_span.join(span);
+                input = remaining;
+            }
+
             ParseResult::Match(ParsedValue {
                 value: result,
                 span: full_span,
                 remaining: input,
             })
-        } else {
-            ParseResult::NoMatch
-        }
-    })
+        })
+    }
+}
+
+/// A parser returning a tuple
+pub trait TupleParser<TokenKind, U, V, E>: Parser<TokenKind, (U, V), E> {
+    /// Returns the first matched value
+    fn prefix(self) -> impl Parser<TokenKind, U, E> {
+        parse_fn!(|input| self.run(input).map_value(|(val, _)| val))
+    }
+
+    /// Returns the second matched value
+    fn suffix(self) -> impl Parser<TokenKind, V, E> {
+        parse_fn!(|input| self.run(input).map_value(|(_, val)| val))
+    }
+}
+
+impl<TokenKind, U, V, E, P> TupleParser<TokenKind, U, V, E> for P where
+    P: Parser<TokenKind, (U, V), E>
+{
+}
+
+/// Always matches
+pub fn always<TokenKind, E>() -> impl Parser<TokenKind, (), E> {
+    parse_fn!(|input| ParseResult::Match(ParsedValue {
+        value: (),
+        span: input.empty_span(),
+        remaining: input,
+    }))
 }
 
 /// Matches the end of the token stream
@@ -480,114 +566,14 @@ pub fn between<TokenKind, T1, T2, T3, E>(
     })
 }
 
-/// Matches a parser multiple times, separated by the given separator
-pub fn sep_by<TokenKind, T, S, E>(
-    p: impl Parser<TokenKind, T, E>,
-    sep: impl Parser<TokenKind, S, E>,
-    allow_empty: bool,
-    allow_trailing: bool,
-) -> impl Parser<TokenKind, Vec<T>, E> {
-    parse_fn!(|input| {
-        match p.run(input) {
-            ParseResult::Match(ParsedValue {
-                value,
-                span,
-                remaining,
-            }) => {
-                let mut result = Vec::new();
-                result.push(value);
-
-                let mut full_span = span;
-                let mut input = remaining;
-
-                loop {
-                    match sep.run(input) {
-                        ParseResult::Match(ParsedValue {
-                            span: sep_span,
-                            remaining: sep_remaining,
-                            ..
-                        }) => match p.run(sep_remaining) {
-                            ParseResult::Match(ParsedValue {
-                                value,
-                                span,
-                                remaining,
-                            }) => {
-                                result.push(value);
-                                full_span = full_span.join(span);
-                                input = remaining;
-                            }
-                            ParseResult::NoMatch => {
-                                if allow_trailing {
-                                    full_span = full_span.join(sep_span);
-                                    input = sep_remaining;
-                                }
-
-                                break;
-                            }
-                            ParseResult::Err(err) => return ParseResult::Err(err),
-                        },
-                        ParseResult::NoMatch => break,
-                        ParseResult::Err(err) => return ParseResult::Err(err),
-                    }
-                }
-
-                ParseResult::Match(ParsedValue {
-                    value: result,
-                    span: full_span,
-                    remaining: input,
-                })
-            }
-            ParseResult::NoMatch => {
-                if allow_empty {
-                    ParseResult::Match(ParsedValue {
-                        value: Vec::new(),
-                        span: input.empty_span(),
-                        remaining: input,
-                    })
-                } else {
-                    ParseResult::NoMatch
-                }
-            }
-            ParseResult::Err(err) => ParseResult::Err(err),
-        }
-    })
-}
-
-/// Matches a parser exactly 'count' times
-pub fn repeat<TokenKind, T, E>(
-    p: impl Parser<TokenKind, T, E>,
-    count: usize,
-) -> impl Parser<TokenKind, Vec<T>, E> {
-    parse_fn!(|mut input| {
-        let mut result = Vec::with_capacity(count);
-        let mut full_span = input.empty_span();
-
-        for _ in 0..count {
-            let ParsedValue {
-                value,
-                span,
-                remaining,
-            } = p.run(input)?;
-
-            result.push(value);
-            full_span = full_span.join(span);
-            input = remaining;
-        }
-
-        ParseResult::Match(ParsedValue {
-            value: result,
-            span: full_span,
-            remaining: input,
-        })
-    })
-}
-
 pub use langbox_procmacro::{choice, parser, sequence};
 
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
     use crate::lexer::test::*;
+    use crate::lexer::whitespace_mode;
+    use std::fmt;
 
     fn parse_test_token(kind: TestTokenKind) -> impl Parser<TestTokenKind, char, &'static str> {
         parse_fn!(|input: TokenStream<TestTokenKind>| {
@@ -607,7 +593,7 @@ pub(crate) mod test {
         })
     }
 
-    fn test_parser<T: Debug + Eq>(
+    fn test_parser<T: fmt::Debug + Eq>(
         p: impl Parser<TestTokenKind, T, &'static str>,
         text: &'static str,
         expected_output: Option<T>,
@@ -755,7 +741,7 @@ pub(crate) mod test {
         test_parser(p, "b", Some(true));
     }
 
-    fn test_parser_error<T: Debug + Eq>(
+    fn test_parser_error<T: fmt::Debug + Eq>(
         p: impl Parser<TestTokenKind, T, &'static str>,
         text: &'static str,
         expected_error: &'static str,
@@ -812,8 +798,7 @@ pub(crate) mod test {
 
     #[test]
     fn sep_by() {
-        let p = super::sep_by(
-            parse_test_token(TestTokenKind::A),
+        let p = parse_test_token(TestTokenKind::A).sep_by(
             parse_test_token(TestTokenKind::B),
             true,
             false,
@@ -827,8 +812,7 @@ pub(crate) mod test {
 
     #[test]
     fn sep_by_trailing() {
-        let p = super::sep_by(
-            parse_test_token(TestTokenKind::A),
+        let p = parse_test_token(TestTokenKind::A).sep_by(
             parse_test_token(TestTokenKind::B),
             true,
             true,
@@ -845,8 +829,7 @@ pub(crate) mod test {
 
     #[test]
     fn sep_by1() {
-        let p = super::sep_by(
-            parse_test_token(TestTokenKind::A),
+        let p = parse_test_token(TestTokenKind::A).sep_by(
             parse_test_token(TestTokenKind::B),
             false,
             false,
@@ -860,8 +843,7 @@ pub(crate) mod test {
 
     #[test]
     fn sep_by1_trailing() {
-        let p = super::sep_by(
-            parse_test_token(TestTokenKind::A),
+        let p = parse_test_token(TestTokenKind::A).sep_by(
             parse_test_token(TestTokenKind::B),
             false,
             true,
@@ -878,12 +860,12 @@ pub(crate) mod test {
 
     #[test]
     fn repeat() {
-        let p = super::repeat(parse_test_token(TestTokenKind::A), 0);
+        let p = parse_test_token(TestTokenKind::A).repeat(0);
 
         test_parser(p, "", Some(vec![]));
         test_parser(p, "a", Some(vec![]));
 
-        let p = super::repeat(parse_test_token(TestTokenKind::A), 3);
+        let p = parse_test_token(TestTokenKind::A).repeat(3);
 
         test_parser(p, "", None);
         test_parser(p, "a", None);

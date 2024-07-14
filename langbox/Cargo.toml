@@ -1,7 +1,8 @@
 [package]
 name = "langbox"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["Mathis Rech"]
 license = "MIT"
 description = "A simple framework to build compilers and interpreters"
@@ -20,5 +21,5 @@ path = "tests/test.rs"
 trybuild = { version = "1.0", features = ["diff"] }
 
 [dependencies]
-langbox_procmacro = { path = "../langbox_procmacro", version = "0.2" }
-ahash = "0.8.3"
+langbox_procmacro = { path = "../langbox_procmacro", version = "0.3" }
+ahash = "0.8.11"

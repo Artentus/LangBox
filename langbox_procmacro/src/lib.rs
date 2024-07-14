@@ -305,19 +305,19 @@ impl Parse for Combinator {
 }
 
 macro_rules! gen_unary {
-    ($n:expr, $cident:ident, $c:ident, $v:ident, $fn:ident) => {{
+    ($n:expr, $c:ident, $v:ident, $fn:ident) => {{
         let p_fn = generate_parser(*$c, $n + 1);
         let p_ident = Ident::new(&format!("p{}", $n), Span::call_site());
 
         quote!({
             let #p_ident = #p_fn;
-            #$cident::$fn(#p_ident, #$v)
+            #p_ident.$fn(#$v)
         })
     }}
 }
 
 macro_rules! gen_binary {
-    ($n:expr, $cident:ident, $lhs:ident, $rhs:ident, $fn:ident) => {{
+    ($n:expr, $lhs:ident, $rhs:ident, $fn:ident) => {{
         let lhs_fn = generate_parser(*$lhs, $n + 1);
         let rhs_fn = generate_parser(*$rhs, $n + 1);
 
@@ -327,7 +327,23 @@ macro_rules! gen_binary {
         quote!({
             let #lhs_ident = #lhs_fn;
             let #rhs_ident = #rhs_fn;
-            #$cident::$fn(#lhs_ident, #rhs_ident)
+            #lhs_ident.$fn(#rhs_ident)
+        })
+    }};
+}
+
+macro_rules! gen_tuple {
+    ($n:expr, $lhs:ident, $rhs:ident, $fn:ident, $extract:ident) => {{
+        let lhs_fn = generate_parser(*$lhs, $n + 1);
+        let rhs_fn = generate_parser(*$rhs, $n + 1);
+
+        let lhs_ident = Ident::new(&format!("lhs{}", $n), Span::call_site());
+        let rhs_ident = Ident::new(&format!("rhs{}", $n), Span::call_site());
+
+        quote!({
+            let #lhs_ident = #lhs_fn;
+            let #rhs_ident = #rhs_fn;
+            #lhs_ident.$fn(#rhs_ident).$extract()
         })
     }};
 }
@@ -343,7 +359,7 @@ fn generate_parser(c: Combinator, n: usize) -> syn::__private::TokenStream2 {
     };
 
     match c {
-        Combinator::Always => quote!(#crate_ident::_always()),
+        Combinator::Always => quote!(#crate_ident::always()),
         Combinator::Parser(ident) => quote!(#ident),
         Combinator::Optional(c) => {
             let p_fn = generate_parser(*c, n + 1);
@@ -351,7 +367,7 @@ fn generate_parser(c: Combinator, n: usize) -> syn::__private::TokenStream2 {
 
             quote!({
                 let #p_ident = #p_fn;
-                #crate_ident::_opt(#p_ident)
+                #p_ident.opt()
             })
         }
         Combinator::OrDefault(c) => {
@@ -360,7 +376,7 @@ fn generate_parser(c: Combinator, n: usize) -> syn::__private::TokenStream2 {
 
             quote!({
                 let #p_ident = #p_fn;
-                #crate_ident::_or_default(#p_ident)
+                #p_ident.or_default()
             })
         }
         Combinator::Many(c) => {
@@ -369,7 +385,7 @@ fn generate_parser(c: Combinator, n: usize) -> syn::__private::TokenStream2 {
 
             quote!({
                 let #p_ident = #p_fn;
-                #crate_ident::_many(#p_ident, true)
+                #p_ident.many(true)
             })
         }
         Combinator::Many1(c) => {
@@ -378,17 +394,17 @@ fn generate_parser(c: Combinator, n: usize) -> syn::__private::TokenStream2 {
 
             quote!({
                 let #p_ident = #p_fn;
-                #crate_ident::_many(#p_ident, false)
+                #p_ident.many(false)
             })
         }
-        Combinator::MapTo { c, value } => gen_unary!(n, crate_ident, c, value, _map_to),
-        Combinator::Map { c, f } => gen_unary!(n, crate_ident, c, f, _map),
-        Combinator::MapError { c, f } => gen_unary!(n, crate_ident, c, f, _map_err),
-        Combinator::Require { c, f } => gen_unary!(n, crate_ident, c, f, _require),
-        Combinator::AndThen { lhs, rhs } => gen_binary!(n, crate_ident, lhs, rhs, _and_then),
-        Combinator::Prefix { lhs, rhs } => gen_binary!(n, crate_ident, lhs, rhs, _prefix),
-        Combinator::Suffix { lhs, rhs } => gen_binary!(n, crate_ident, lhs, rhs, _suffix),
-        Combinator::OrElse { lhs, rhs } => gen_binary!(n, crate_ident, lhs, rhs, _or_else),
+        Combinator::MapTo { c, value } => gen_unary!(n, c, value, map_to),
+        Combinator::Map { c, f } => gen_unary!(n, c, f, map),
+        Combinator::MapError { c, f } => gen_unary!(n, c, f, map_err),
+        Combinator::Require { c, f } => gen_unary!(n, c, f, require),
+        Combinator::AndThen { lhs, rhs } => gen_binary!(n, lhs, rhs, and_then),
+        Combinator::Prefix { lhs, rhs } => gen_tuple!(n, lhs, rhs, and_then, prefix),
+        Combinator::Suffix { lhs, rhs } => gen_tuple!(n, lhs, rhs, and_then, suffix),
+        Combinator::OrElse { lhs, rhs } => gen_binary!(n, lhs, rhs, or_else),
         Combinator::Parenthesized(c) => generate_parser(*c, n),
     }
 }
@@ -540,7 +556,7 @@ pub fn choice(input: TokenStream) -> TokenStream {
     let body = generate_choice(&c, crate_ident.clone(), 0);
 
     quote!(
-        #crate_ident::_constrain_parse_fn(move |input| {
+        #crate_ident::parse_fn!(|input| {
             #body
         })
     )
@@ -615,7 +631,7 @@ pub fn sequence(input: TokenStream) -> TokenStream {
 
     let s = parse_macro_input!(input as Sequence);
     if s.parsers.len() == 0 {
-        quote!(#crate_ident::_always()).into()
+        quote!(#crate_ident::always()).into()
     } else {
         let body = generate_sequence(
             &s,
@@ -626,7 +642,7 @@ pub fn sequence(input: TokenStream) -> TokenStream {
         );
 
         quote!(
-            #crate_ident::_constrain_parse_fn(move |input| {
+            #crate_ident::parse_fn!(|input| {
                 let remaining = input;
                 #body
             })

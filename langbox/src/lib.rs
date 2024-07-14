@@ -62,23 +62,82 @@
 //! ```
 #![deny(missing_docs)]
 #![feature(try_trait_v2)]
-#![feature(never_type)]
-#![feature(exhaustive_patterns)]
 #![cfg_attr(target_family = "windows", feature(windows_by_handle))]
-
-use std::cmp::Ordering;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::ops::{Deref, Range};
-use std::rc::Rc;
 
 mod file_system;
 pub use file_system::*;
 
+mod lexer;
+pub use lexer::*;
+
+mod parser;
+pub use parser::*;
+
+use std::cmp::Ordering;
+use std::fmt;
+use std::hash::Hash;
+use std::ops::{Deref, Range};
+use std::sync::Arc;
+
+enum SharedStr {
+    Static(&'static str),
+    Alloc(Arc<str>),
+}
+
+impl From<&'static str> for SharedStr {
+    #[inline]
+    fn from(value: &'static str) -> Self {
+        Self::Static(value)
+    }
+}
+
+impl From<String> for SharedStr {
+    #[inline]
+    fn from(value: String) -> Self {
+        Self::Alloc(value.into())
+    }
+}
+
+impl From<Arc<str>> for SharedStr {
+    #[inline]
+    fn from(value: Arc<str>) -> Self {
+        Self::Alloc(value)
+    }
+}
+
+impl Clone for SharedStr {
+    #[inline]
+    fn clone(&self) -> Self {
+        match self {
+            &Self::Static(s) => Self::Static(s),
+            Self::Alloc(s) => Self::Alloc(Arc::clone(s)),
+        }
+    }
+}
+
+impl Deref for SharedStr {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        match self {
+            &Self::Static(s) => s,
+            Self::Alloc(s) => s,
+        }
+    }
+}
+
+impl fmt::Debug for SharedStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s: &str = self;
+        fmt::Debug::fmt(s, f)
+    }
+}
+
 ///
 #[derive(Debug, Clone)]
 pub struct SourceRef {
-    source: Rc<str>,
+    source: SharedStr,
     range: Range<u32>,
 }
 
@@ -111,6 +170,12 @@ pub struct TextPosition {
 }
 
 impl TextPosition {
+    /// A position not referring to any file
+    pub const NONE: Self = Self {
+        file_id: FileId::NONE,
+        byte_offset: 0,
+    };
+
     /// The source file this position is referring to
     #[inline]
     pub fn file_id(self) -> FileId {
@@ -267,9 +332,3 @@ pub fn _join_spans(spans: &[TextSpan]) -> TextSpan {
     }
     result
 }
-
-mod lexer;
-pub use lexer::*;
-
-mod parser;
-pub use parser::*;

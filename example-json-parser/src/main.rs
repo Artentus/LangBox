@@ -295,7 +295,7 @@ fn jstring() -> impl JParser<JsonValue> {
 }
 
 fn jarray() -> impl JParser<JsonValue> {
-    let list = sep_by(jvalue(), token!(Comma), true, false);
+    let list = jvalue().sep_by(token!(Comma), true, false);
     let closing = parser!({token!(CloseBracket)}!![|_| "expected closing bracket".to_string()]);
     let array = between(token!(OpenBracket), list, closing);
 
@@ -319,7 +319,7 @@ fn jarray() -> impl JParser<JsonValue> {
 
 fn jobject() -> impl JParser<JsonValue> {
     let field = parser!({string()} <. {token!(Colon)} <.> {jvalue()});
-    let list = sep_by(field, token!(Comma), true, false);
+    let list = field.sep_by(token!(Comma), true, false);
     let closing = parser!({token!(CloseBrace)}!![|_| "expected closing brace".to_string()]);
     let object = between(token!(OpenBrace), list, closing);
 

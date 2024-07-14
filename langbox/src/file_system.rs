@@ -1,6 +1,6 @@
+use crate::SharedStr;
 use std::borrow::Cow;
 use std::path::Path;
-use std::rc::Rc;
 
 #[cfg(target_family = "unix")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -47,7 +47,7 @@ impl FileId {
 #[derive(Debug)]
 pub struct SourceFile {
     path: Box<Path>,
-    text: Rc<str>,
+    text: SharedStr,
 }
 
 impl SourceFile {
@@ -64,8 +64,8 @@ impl SourceFile {
     }
 
     #[inline]
-    pub(crate) fn text_clone(&self) -> Rc<str> {
-        Rc::clone(&self.text)
+    pub(crate) fn text_clone(&self) -> SharedStr {
+        self.text.clone()
     }
 
     /// The length of the text content
@@ -170,7 +170,7 @@ impl FileServer {
         self.files.get(id.0 as usize)
     }
 
-    fn add_file(&mut self, path: Box<Path>, text: Rc<str>) -> Result<FileId, AddFileError> {
+    fn add_file(&mut self, path: Box<Path>, text: SharedStr) -> Result<FileId, AddFileError> {
         let id =
             u32::try_from(self.files.len()).map_err(|_| AddFileError::TooManyFilesRegistered)?;
 
@@ -228,7 +228,7 @@ impl FileServer {
             return Err(RegisterMemoryFileError::NameAlreadyRegistered(id));
         }
 
-        let text: Rc<str> = match text.into() {
+        let text: SharedStr = match text.into() {
             Cow::Borrowed(text) => text.into(),
             Cow::Owned(text) => text.into(),
         };
