@@ -494,7 +494,7 @@ fn generate_choice(c: &Choice, crate_ident: Ident, n: usize) -> syn::__private::
         quote!({
             let #p_ident = #p_fn;
             match #p_ident.run(input) {
-                #crate_ident::ParseResult::Match(v) => #crate_ident::ParseResult::Match(v),
+                #crate_ident::ParseResult::Match { value, remaining } => #crate_ident::ParseResult::Match { value, remaining },
                 #crate_ident::ParseResult::NoMatch => #inner,
                 #crate_ident::ParseResult::Err(err) => return #crate_ident::ParseResult::Err(err),
             }
@@ -597,19 +597,14 @@ fn generate_sequence(
 
         quote!({
             let #p_ident = #p_fn;
-            let #crate_ident::ParsedValue {
-                value: #v_ident,
-                span: #s_ident,
-                remaining,
-            } = #p_ident.run(remaining)?;
+            let (#v_ident, remaining) = #p_ident.run(remaining)?;
             #inner
         })
     } else {
-        quote!({#crate_ident::ParseResult::Match(#crate_ident::ParsedValue {
+        quote!({#crate_ident::ParseResult::Match {
             value: (#(#vals),*),
-            span: #crate_ident::_join_spans(&[input.empty_span(), #(#spans),*]),
             remaining,
-        })})
+        }})
     }
 }
 

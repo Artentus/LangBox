@@ -174,14 +174,13 @@ impl std::fmt::Debug for JsonValue {
 
 trait JParser<T> = Parser<JsonTokenKind, T, String>;
 
-fn token(predicate: impl Fn(&JsonTokenKind) -> bool + Copy) -> impl JParser<JsonTokenKind> {
+fn token(predicate: impl Fn(&JsonTokenKind) -> bool + Copy) -> impl JParser<TextSpan> {
     parse_fn!(|input| if let Some(token) = input.peek() {
         if predicate(&token.kind) {
-            ParseResult::Match(ParsedValue {
-                value: token.kind.clone(),
-                span: token.span,
+            ParseResult::Match {
+                value: token.span,
                 remaining: input.advance(),
-            })
+            }
         } else {
             ParseResult::NoMatch
         }
@@ -192,65 +191,51 @@ fn token(predicate: impl Fn(&JsonTokenKind) -> bool + Copy) -> impl JParser<Json
 
 macro_rules! token {
     ($kind:ident) => {
-        token(|kind| {
-            if let JsonTokenKind::$kind = kind {
-                true
-            } else {
-                false
-            }
-        })
+        token(|kind| matches!(kind, JsonTokenKind::$kind { .. }))
     };
 }
 
 fn jnull() -> impl JParser<JsonValue> {
-    parse_fn!(|input| {
-        let ParsedValue {
-            span, remaining, ..
-        } = token!(Null).run(input)?;
-
-        ParseResult::Match(ParsedValue {
-            value: JsonValue {
-                kind: JsonValueKind::Null,
-                span,
-            },
-            span,
-            remaining,
-        })
+    token!(Null).map(|span| JsonValue {
+        kind: JsonValueKind::Null,
+        span,
     })
 }
 
 fn jbool() -> impl JParser<JsonValue> {
-    let p = parser!({token!(False)}=>[false] <|> {token!(True)}=>[true]);
-
-    parse_fn!(|input| {
-        let ParsedValue {
-            value,
-            span,
-            remaining,
-        } = p.run(input)?;
-
-        ParseResult::Match(ParsedValue {
-            value: JsonValue {
-                kind: JsonValueKind::Bool(value),
-                span,
+    parse_fn!(|input| if let Some(token) = input.peek() {
+        match &token.kind {
+            JsonTokenKind::True => ParseResult::Match {
+                value: JsonValue {
+                    kind: JsonValueKind::Bool(true),
+                    span: token.span,
+                },
+                remaining: input.advance(),
             },
-            span,
-            remaining,
-        })
+            JsonTokenKind::False => ParseResult::Match {
+                value: JsonValue {
+                    kind: JsonValueKind::Bool(false),
+                    span: token.span,
+                },
+                remaining: input.advance(),
+            },
+            _ => ParseResult::NoMatch,
+        }
+    } else {
+        ParseResult::NoMatch
     })
 }
 
 fn jnumber() -> impl JParser<JsonValue> {
     parse_fn!(|input| if let Some(token) = input.peek() {
         if let JsonTokenKind::Number(value) = &token.kind {
-            ParseResult::Match(ParsedValue {
+            ParseResult::Match {
                 value: JsonValue {
                     kind: JsonValueKind::Number(*value),
                     span: token.span,
                 },
-                span: token.span,
                 remaining: input.advance(),
-            })
+            }
         } else {
             ParseResult::NoMatch
         }
@@ -262,11 +247,10 @@ fn jnumber() -> impl JParser<JsonValue> {
 fn string() -> impl JParser<Rc<str>> {
     parse_fn!(|input| if let Some(token) = input.peek() {
         if let JsonTokenKind::String(value) = &token.kind {
-            ParseResult::Match(ParsedValue {
+            ParseResult::Match {
                 value: Rc::clone(value),
-                span: token.span,
                 remaining: input.advance(),
-            })
+            }
         } else {
             ParseResult::NoMatch
         }
@@ -276,68 +260,43 @@ fn string() -> impl JParser<Rc<str>> {
 }
 
 fn jstring() -> impl JParser<JsonValue> {
-    parse_fn!(|input| {
-        let ParsedValue {
-            value,
-            span,
-            remaining,
-        } = string().run(input)?;
-
-        ParseResult::Match(ParsedValue {
-            value: JsonValue {
-                kind: JsonValueKind::String(value),
-                span,
-            },
-            span,
-            remaining,
-        })
+    parse_fn!(|input| if let Some(token) = input.peek() {
+        if let JsonTokenKind::String(value) = &token.kind {
+            ParseResult::Match {
+                value: JsonValue {
+                    kind: JsonValueKind::String(Rc::clone(value)),
+                    span: token.span,
+                },
+                remaining: input.advance(),
+            }
+        } else {
+            ParseResult::NoMatch
+        }
+    } else {
+        ParseResult::NoMatch
     })
 }
 
 fn jarray() -> impl JParser<JsonValue> {
     let list = jvalue().sep_by(token!(Comma), true, false);
-    let closing = parser!({token!(CloseBracket)}!![|_| "expected closing bracket".to_string()]);
-    let array = between(token!(OpenBracket), list, closing);
+    let closing = token!(CloseBracket).require(|_| "expected closing bracket".to_string());
+    let array = sequence!(token!(OpenBracket), list, closing);
 
-    parse_fn!(|input| {
-        let ParsedValue {
-            value,
-            span,
-            remaining,
-        } = array.run(input)?;
-
-        ParseResult::Match(ParsedValue {
-            value: JsonValue {
-                kind: JsonValueKind::Array(value),
-                span,
-            },
-            span,
-            remaining,
-        })
+    array.map(|(open, value, close)| JsonValue {
+        kind: JsonValueKind::Array(value),
+        span: open.join(close).unwrap(),
     })
 }
 
 fn jobject() -> impl JParser<JsonValue> {
     let field = parser!({string()} <. {token!(Colon)} <.> {jvalue()});
     let list = field.sep_by(token!(Comma), true, false);
-    let closing = parser!({token!(CloseBrace)}!![|_| "expected closing brace".to_string()]);
-    let object = between(token!(OpenBrace), list, closing);
+    let closing = token!(CloseBrace).require(|_| "expected closing brace".to_string());
+    let object = sequence!(token!(OpenBrace), list, closing);
 
-    parse_fn!(|input| {
-        let ParsedValue {
-            value,
-            span,
-            remaining,
-        } = object.run(input)?;
-
-        ParseResult::Match(ParsedValue {
-            value: JsonValue {
-                kind: JsonValueKind::Object(value.into_iter().collect()),
-                span,
-            },
-            span,
-            remaining,
-        })
+    object.map(|(open, value, close)| JsonValue {
+        kind: JsonValueKind::Object(value.into_iter().collect()),
+        span: open.join(close).unwrap(),
     })
 }
 
@@ -411,7 +370,7 @@ fn main() {
     let stream = TokenStream::new(&tokens);
 
     match jvalue().run(stream) {
-        ParseResult::Match(ParsedValue { value, .. }) => {
+        ParseResult::Match { value, .. } => {
             println!("{value:#?}")
         }
         ParseResult::NoMatch => { /* empty input */ }

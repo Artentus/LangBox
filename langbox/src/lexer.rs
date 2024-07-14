@@ -102,7 +102,7 @@ pub trait TokenReader {
 }
 
 /// A syntax token
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Token<Kind> {
     /// The span corresponding to this token
     pub span: TextSpan,

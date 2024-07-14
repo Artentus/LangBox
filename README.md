@@ -3,7 +3,7 @@
 __A simple framework to build compilers and interpreters__
 
 This crate requires a nightly compiler because of the try_trait_v2 feature.  
-As of version 0.6 requires Rust version 1.75 for impl trait returns in trait functions.
+As of version 0.6 requires Rust version 1.79.
 
 ## Usage
 ```rust

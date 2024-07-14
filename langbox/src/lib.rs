@@ -52,7 +52,7 @@
 //!
 //!     // Finally after all files have been tokenized we can parse the token stream.
 //!     match jvalue().run(stream) {
-//!         ParseResult::Match(ParsedValue { value, .. }) => {
+//!         ParseResult::Match { value, .. } => {
 //!             // `value` contains the parsed JSON value
 //!         }
 //!         ParseResult::NoMatch => { /* empty input */ }
@@ -73,6 +73,7 @@ pub use lexer::*;
 mod parser;
 pub use parser::*;
 
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
@@ -134,7 +135,7 @@ impl fmt::Debug for SharedStr {
     }
 }
 
-///
+/// A reference to source text
 #[derive(Debug, Clone)]
 pub struct SourceRef {
     source: SharedStr,
@@ -182,7 +183,7 @@ impl TextPosition {
         self.file_id
     }
 
-    /// Gets the zero-based line and column numbers corresponding to this position
+    /// Gets the zero-based line and column numbers corresponding to this position.
     pub fn line_column(self, file_server: &FileServer) -> (u32, u32) {
         let file = file_server.get_file(self.file_id).expect("invalid file ID");
 
@@ -283,7 +284,7 @@ impl TextSpan {
         }
     }
 
-    /// Gets the source text corresponding to this span
+    /// Gets the source text corresponding to this span.
     pub fn source<'a>(self, file_server: &'a FileServer) -> &'a str {
         let file = file_server.get_file(self.file_id).expect("invalid file ID");
 
@@ -293,7 +294,7 @@ impl TextSpan {
         &file.text()[start..end]
     }
 
-    /// Gets the source text corresponding to this span
+    /// Gets the source text corresponding to this span.
     pub fn source_clone(self, file_server: &FileServer) -> SourceRef {
         let file = file_server.get_file(self.file_id).expect("invalid file ID");
 
@@ -303,32 +304,41 @@ impl TextSpan {
         }
     }
 
-    /// Joins two spans.
-    /// The resulting span will define a region that includes the regions of both spans entirely as well as anything in between.
-    pub fn join(self, other: Self) -> Self {
-        assert_eq!(
-            self.file_id, other.file_id,
-            "spans belong to different files"
-        );
+    /// Joins two spans.  
+    /// The resulting span will define a region that includes the regions of both spans entirely as well as anything in between.  
+    /// Returns `None` if the two spans don't refer to the same file.
+    pub fn join(self, other: Self) -> Option<Self> {
+        if self.file_id != other.file_id {
+            return None;
+        }
 
         let start_byte_offset = self.start_byte_offset.min(other.start_byte_offset);
         let end_byte_offset = self.end_byte_offset.max(other.end_byte_offset);
 
-        Self {
+        Some(Self {
             file_id: self.file_id,
             start_byte_offset,
             end_byte_offset,
-        }
+        })
     }
 }
 
-#[doc(hidden)]
-pub fn _join_spans(spans: &[TextSpan]) -> TextSpan {
-    assert!(spans.len() > 0);
+/// A collection of text spans
+pub trait TextSpanCollection {
+    /// Joins all spans in the collection.  
+    /// Returns `None` if the collection is empty or not all spans refer to the same file.
+    fn joined_span(self) -> Option<TextSpan>;
+}
 
-    let mut result = spans[0];
-    for &span in spans[1..].iter() {
-        result = result.join(span);
+impl<Iter> TextSpanCollection for Iter
+where
+    Iter: Iterator<Item: Borrow<TextSpan>>,
+{
+    fn joined_span(mut self) -> Option<TextSpan> {
+        let mut result = *self.next()?.borrow();
+        for span in self {
+            result = result.join(*span.borrow())?;
+        }
+        Some(result)
     }
-    result
 }
